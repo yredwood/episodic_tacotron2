@@ -42,8 +42,8 @@ def init_distributed(hparams, n_gpus, rank, group_name):
 def prepare_dataloaders(hparams):
     # Get data, data loaders and collate function ready
     trainset = TextMelLoader(hparams.training_files, hparams)
-    valset = TextMelLoader(hparams.validation_files, hparams,
-                           speaker_ids=trainset.speaker_ids)
+    valset = TextMelLoader(hparams.validation_files, hparams)
+    #                       speaker_ids=trainset.speaker_ids) # NO speaker ids
     collate_fn = TextMelCollate(hparams.n_frames_per_step)
 
     if hparams.distributed_run:
@@ -71,17 +71,42 @@ def prepare_directories_and_logger(output_directory, log_directory, rank):
     return logger
 
 
+#def warm_start_model(checkpoint_path, model, ignore_layers):
+#    assert os.path.isfile(checkpoint_path)
+#    print("Warm starting model from checkpoint '{}'".format(checkpoint_path))
+#    checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
+#    model_dict = checkpoint_dict['state_dict']
+#    if len(ignore_layers) > 0:
+#        model_dict = {k: v for k, v in model_dict.items()
+#                      if k not in ignore_layers}
+#        dummy_dict = model.state_dict()
+#        dummy_dict.update(model_dict)
+#        model_dict = dummy_dict
+#    model.load_state_dict(model_dict)
+#    return model
+
 def warm_start_model(checkpoint_path, model, ignore_layers):
+    '''
+    change it can be capable of restoring params with different subset
+    '''
     assert os.path.isfile(checkpoint_path)
     print("Warm starting model from checkpoint '{}'".format(checkpoint_path))
     checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
-    model_dict = checkpoint_dict['state_dict']
-    if len(ignore_layers) > 0:
-        model_dict = {k: v for k, v in model_dict.items()
-                      if k not in ignore_layers}
-        dummy_dict = model.state_dict()
-        dummy_dict.update(model_dict)
-        model_dict = dummy_dict
+    saved_dict = checkpoint_dict['state_dict']
+    restore_dict = {}
+    for k, v in saved_dict.items():
+        if (k not in ignore_layers) and (k in model.state_dict()):
+            if v.shape == model.state_dict()[k].shape:
+                print ('Layer {} has been restored: {}'.format(k, v.shape))
+            else:
+                print ('---- {} NOT restored: shape diff, ckpt: {}, model: {}'\
+                        .format(k, v.shape, model.state_dict()[k].shape))
+        else:
+            print ('---- {} NOT restored; name not in the model'.format(k))
+
+    dummy_dict = model.state_dict()
+    dummy_dict.update(restore_dict)
+    model_dict = dummy_dict
     model.load_state_dict(model_dict)
     return model
 

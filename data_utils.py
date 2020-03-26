@@ -82,11 +82,12 @@ class TextMelLoader(torch.utils.data.Dataset):
         melspec = self.stft.mel_spectrogram(audio_norm)
         melspec = torch.squeeze(melspec, 0)
 
-        f0 = self.get_f0(audio.cpu().numpy(), self.sampling_rate,
-                         self.filter_length, self.hop_length, self.f0_min,
-                         self.f0_max, self.harm_thresh)
-        f0 = torch.from_numpy(f0)[None]
-        f0 = f0[:, :melspec.size(1)]
+#        f0 = self.get_f0(audio.cpu().numpy(), self.sampling_rate,
+#                         self.filter_length, self.hop_length, self.f0_min,
+#                         self.f0_max, self.harm_thresh)
+#        f0 = torch.from_numpy(f0)[None]
+#        f0 = f0[:, :melspec.size(1)]
+        f0 = None
 
         return melspec, f0
 
@@ -141,8 +142,9 @@ class TextMelCollate():
         gate_padded.zero_()
         output_lengths = torch.LongTensor(len(batch))
         speaker_ids = torch.LongTensor(len(batch))
-        f0_padded = torch.FloatTensor(len(batch), 1, max_target_len)
-        f0_padded.zero_()
+        f0_padded = None
+#        f0_padded = torch.FloatTensor(len(batch), 1, max_target_len)
+#        f0_padded.zero_()
 
         for i in range(len(ids_sorted_decreasing)):
             mel = batch[ids_sorted_decreasing[i]][1]
@@ -150,8 +152,8 @@ class TextMelCollate():
             gate_padded[i, mel.size(1)-1:] = 1
             output_lengths[i] = mel.size(1)
             speaker_ids[i] = batch[ids_sorted_decreasing[i]][2]
-            f0 = batch[ids_sorted_decreasing[i]][3]
-            f0_padded[i, :, :f0.size(1)] = f0
+#            f0 = batch[ids_sorted_decreasing[i]][3]
+#            f0_padded[i, :, :f0.size(1)] = f0
 
         model_inputs = (text_padded, input_lengths, mel_padded, gate_padded,
                         output_lengths, speaker_ids, f0_padded)
