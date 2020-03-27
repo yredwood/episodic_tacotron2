@@ -6,26 +6,25 @@ from shutil import copyfile
 import numpy as np
 import scipy as sp
 from scipy.io.wavfile import write
+from scipy.io.wavfile import read
 import pandas as pd
-import librosa
 import torch
 import matplotlib
 import matplotlib.pyplot as plt
 
 from audio_processing import griffin_lim
 from hparams import create_hparams
-from model import EpisodicTacotron, Tacotron2, load_model
+from model import Tacotron2, load_model
 from waveglow.denoiser import Denoiser
 from layers import TacotronSTFT
 from data_utils import TextMelLoader, TextMelCollate
-from data_utils import EpisodicLoader, EpisodicCollater, EpisodicBatchSampler
 from text import cmudict, text_to_sequence, sequence_to_text
 
 import pdb
 
 
 # ========== parameters ===========
-checkpoint_path = 'models/tst_tacotron2_161616_single_2_pretrained/checkpoint_18000'
+checkpoint_path = 'models/mellotron_warmup/checkpoint_8500'
 waveglow_path = 'models/waveglow_256channels_v4.pt'
 #waveglow_path = '/home/mike/models/waveglow/waveglow_80000'
 audio_path = 'filelists/libri100_val.txt'
@@ -41,8 +40,8 @@ test_text_list = [
             + 'she could have done so with very little trouble',
 ]
 
-#supportset_sid = '2952'  # m
-supportset_sid = '1069' # f 
+supportset_sid = '2952'  # m
+#supportset_sid = '1069' # f 
 output_root = 'audios'
 
 output_dir = os.path.join(
@@ -53,8 +52,8 @@ if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
 def load_mel(path):
-    audio, sampling_rate = librosa.core.load(path, sr=hparams.sampling_rate)
-    audio = torch.from_numpy(audio)
+    sampling_rate, audio = read(path)
+    audio = torch.from_numpy(audio.astype(np.float32))
     if sampling_rate != hparams.sampling_rate:
         raise ValueError("{} SR doesn't match target {} SR".format(
             sampling_rate, stft.sampling_rate))
@@ -66,13 +65,8 @@ def load_mel(path):
     return melspec
 
 def load_dataloader(hparams, audio_path):
-    if not hparams.episodic_training:
-        dataloader = TextMelLoader(audio_path, hparams)
-        datacollate = TextMelCollate(1)
-    else:
-        dataloader = EpisodicLoader(audio_path, hparams)
-        datacollate = EpisodicCollater(1, hparams)
-    
+    dataloader = TextMelLoader(audio_path, hparams)
+    datacollate = TextMelCollate(1)
     return dataloader, datacollate
 
 def save_figure(mel_pred, attention, fname, description='None'):
@@ -105,79 +99,46 @@ denoiser = Denoiser(waveglow).cuda().eval()
 arpabet_dict = cmudict.CMUDict('data/cmu_dictionary')
 dataloader, datacollate = load_dataloader(hparams, audio_path)
 
-# only for episodic
-batch_sampler = EpisodicBatchSampler(dataloader.sid_to_index, hparams, shuffle=False)
-for batch_idx in batch_sampler:
-    _batch = datacollate([dataloader[i] for i in batch_idx])
-    _, _, sid = dataloader.audiopaths_and_text[batch_idx[0]]
-    if sid == supportset_sid:
-        break
-for i in range(num_support_save):
-    ref_idx = _batch['support']['idx'].data.tolist().index(i)
-    batch, _ = model.parse_batch(_batch.copy())
-    # 1. save reference wav and synthesized wav from the same text
-    audiopath, test_text, speaker = dataloader.audiopaths_and_text[batch_idx[i]]
-    #copyfile(audiopath, os.path.join(output_dir, 'ref_true.wav'))
-    fname_wav = os.path.join(output_dir, 'ref_true_{}.wav'.format(i))
-    mel_outputs_postnet = batch['support']['mel_padded'][ref_idx:ref_idx+1]
-    # remove pad
-    #mel_len = int(batch['support']['f0_padded'][ref_idx].sum().item())
-    mel_len = (mel_outputs_postnet.mean(1) != 0).sum()
-    mel_outputs_postnet = mel_outputs_postnet[:,:,:mel_len]
-    audio = denoiser(waveglow.infer(mel_outputs_postnet, sigma=0.8), 0.01)[:,0]
+
+# save reference wavs and aligned predictions
+for idx in range(len(dataloader)):
+    audio_path, text, sid = dataloader.audiopaths_and_text[idx]
+    if sid != supportset_sid:
+        continue
+
+    # save original wav file
+    fname_wav = os.path.join(output_dir, 'ref_true_{}.wav'.format(idx))
+    copyfile(audio_path, fname_wav)
+
+    text_encoded = torch.LongTensor(\
+            text_to_sequence(text, hparams.text_cleaners, arpabet_dict))[None, :].cuda()
+    mel = load_mel(audio_path)
+
+
+    # save reconstruction from true mel
+    fname_wav = os.path.join(output_dir, 'ref_recon_{}.wav'.format(idx))
+    with torch.no_grad(): 
+        audio = denoiser(waveglow.infer(mel, sigma=0.8), 0.01)[:,0]
     write(fname_wav, hparams.sampling_rate, audio[0].data.cpu().numpy())
-    save_figure(mel_outputs_postnet[0].data.cpu().numpy(),
-            np.zeros((10,10)), fname_wav.replace('.wav', '.png'),
-            description=test_text)
-    text_encoded = torch.LongTensor(
-            text_to_sequence(test_text,
-                hparams.text_cleaners,
-                arpabet_dict)
-            )[None,:].cuda()
-    text_lengths = torch.LongTensor(
-            [len(text_encoded)]).cuda()
-
-    input_dict = {'query': {'text_padded': text_encoded, 'input_lengths': text_lengths},
-            'support': batch['support']}
-
+    fname_fig = os.path.join(output_dir, 'ref_mel.png'.format(idx))
+    save_figure(mel[0].data.cpu().numpy(), 
+            np.zeros((10,10)), fname_fig)
+        
+    # save parallel prediction
+    fname_wav = os.path.join(output_dir, 'ref_parallel_{}.wav'.format(idx))
     with torch.no_grad():
-        mel_outputs, mel_outputs_postnet, gate_outputs, alignments = model.inference(input_dict)
+        mel_outputs, mel_outputs_postnet, gate_outputs, alignments = model.inference(
+                (text_encoded, mel, None, None))
         audio = denoiser(waveglow.infer(mel_outputs_postnet, sigma=0.8), 0.01)[:,0]
-
-    fname_wav = os.path.join(output_dir, 'ref_pred_{}.wav'.format(i))
     write(fname_wav, hparams.sampling_rate, audio[0].data.cpu().numpy())
+
+    fname_fig = os.path.join(output_dir, 'attention_{}.png'.format(idx))
     save_figure(mel_outputs_postnet[0].data.cpu().numpy(), 
-            alignments[0].data.cpu().numpy(), fname_wav.replace('.wav', '.png'), 
-        description=test_text)
-    print (test_text)
+            alignments[0].data.cpu().numpy(), fname_fig)
 
 
-for tidx, test_text in enumerate(test_text_list):
-    text_encoded = torch.LongTensor(
-            text_to_sequence(test_text,
-                hparams.text_cleaners,
-                arpabet_dict)
-            )[None,:].cuda()
-    text_lengths = torch.LongTensor(
-            [len(text_encoded)]).cuda()
-
-    input_dict = {'query': {'text_padded': text_encoded, 'input_lengths': text_lengths},
-            'support': batch['support']}
-
-    with torch.no_grad():
-        mel_outputs, mel_outputs_postnet, gate_outputs, alignments = model.inference(input_dict)
-        audio = denoiser(waveglow.infer(mel_outputs_postnet, sigma=0.8), 0.01)[:,0]
-    
-    fname_wav = os.path.join(output_dir, '{}.wav'.format(tidx))
-    write(fname_wav, hparams.sampling_rate, audio[0].data.cpu().numpy())
-    save_figure(mel_outputs_postnet[0].data.cpu().numpy(), 
-            alignments[0].data.cpu().numpy().T, fname_wav.replace('.wav', '.png'), 
-        description=test_text)
-    print (test_text)
-
-
-
-
+    print (idx, text)
+    break
 
 
 

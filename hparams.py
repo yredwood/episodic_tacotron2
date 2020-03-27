@@ -16,7 +16,7 @@ def create_hparams(hparams_string=None, verbose=False):
         fp16_run=False,
         distributed_run=False,
         dist_backend="nccl",
-        dist_url="tcp://localhost:54321",
+        dist_url="tcp://localhost:54324",
         cudnn_enabled=True,
         cudnn_benchmark=False,
         ignore_layers=['speaker_embedding.weight'],

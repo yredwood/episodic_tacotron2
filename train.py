@@ -98,6 +98,7 @@ def warm_start_model(checkpoint_path, model, ignore_layers):
         if (k not in ignore_layers) and (k in model.state_dict()):
             if v.shape == model.state_dict()[k].shape:
                 print ('Layer {} has been restored: {}'.format(k, v.shape))
+                restore_dict[k] = v
             else:
                 print ('---- {} NOT restored: shape diff, ckpt: {}, model: {}'\
                         .format(k, v.shape, model.state_dict()[k].shape))

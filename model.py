@@ -15,7 +15,6 @@ def load_model(hparams):
     model = Tacotron2(hparams).cuda()
     if hparams.fp16_run:
         model.decoder.attention_layer.score_mask_value = finfo('float16').min
-
     return model
 
 
@@ -219,7 +218,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.n_mel_channels = hparams.n_mel_channels
         self.n_frames_per_step = hparams.n_frames_per_step
-        self.encoder_embedding_dim = hparams.encoder_embedding_dim + hparams.token_embedding_size
+        self.encoder_embedding_dim = hparams.encoder_embedding_dim + hparams.token_embedding_size 
         #+ hparams.speaker_embedding_dim # no speaker embedding: bigger token embedding size
         self.attention_rnn_dim = hparams.attention_rnn_dim
         self.decoder_rnn_dim = hparams.decoder_rnn_dim
@@ -229,7 +228,8 @@ class Decoder(nn.Module):
         self.p_attention_dropout = hparams.p_attention_dropout
         self.p_decoder_dropout = hparams.p_decoder_dropout
         self.p_teacher_forcing = hparams.p_teacher_forcing
-
+        
+#        self.prenet_f0_dim = hparams.prenet_f0_dim
 #        self.prenet_f0 = ConvNorm(
 #            1, hparams.prenet_f0_dim,
 #            kernel_size=hparams.prenet_f0_kernel_size,
@@ -442,7 +442,8 @@ class Decoder(nn.Module):
 #        f0s = torch.cat((f0s, f0_dummy), dim=2)
 #        f0s = F.relu(self.prenet_f0(f0s))
 #        f0s = f0s.permute(2, 0, 1)
-        f0s = None
+#        f0s = decoder_inputs.new_zeros(decoder_inputs.size(0),
+#                decoder_inputs.size(1), self.prenet_f0_dim)
         self.initialize_decoder_states(
             memory, mask=~get_mask_from_lengths(memory_lengths))
 
@@ -456,6 +457,7 @@ class Decoder(nn.Module):
 #                decoder_input = torch.cat((self.prenet(mel_outputs[-1]),
 #                                           f0s[len(mel_outputs)]), dim=1)
                 decoder_input = self.prenet(mel_outputs[-1])
+
             mel_output, gate_output, attention_weights = self.decode(
                 decoder_input)
             mel_outputs += [mel_output.squeeze(1)]
@@ -486,7 +488,7 @@ class Decoder(nn.Module):
 #        f0s = torch.cat((f0s, f0_dummy), dim=2)
 #        f0s = F.relu(self.prenet_f0(f0s))
 #        f0s = f0s.permute(2, 0, 1)
-        f0s = None
+#        f0s = None
 
         mel_outputs, gate_outputs, alignments = [], [], []
         while True:
@@ -494,7 +496,8 @@ class Decoder(nn.Module):
 #                f0 = f0s[len(mel_outputs)]
 #            else:
 #                f0 = f0s[-1] * 0
-#            decoder_input = torch.cat((self.prenet(decoder_input), f0), dim=1)
+#            f0 = memory.new_zeros(decoder_input.size(0), self.prenet_f0_dim)
+            #decoder_input = torch.cat((self.prenet(decoder_input), f0), dim=1)
             decoder_input = self.prenet(decoder_input)
             mel_output, gate_output, alignment = self.decode(decoder_input)
 
@@ -534,13 +537,14 @@ class Decoder(nn.Module):
 #        f0s = torch.cat((f0s, f0_dummy), dim=2)
 #        f0s = F.relu(self.prenet_f0(f0s))
 #        f0s = f0s.permute(2, 0, 1)
-        f0s = None
+        #f0s = None
 
         mel_outputs, gate_outputs, alignments = [], [], []
         for i in range(len(attention_map)):
-#            f0 = f0s[i]
+            #f0 = f0s[i]
+            #f0 = memory.new_zeros(decoder_input.size(0), self.prenet_f0_dim)
             attention = attention_map[i]
-#            decoder_input = torch.cat((self.prenet(decoder_input), f0), dim=1)
+            #decoder_input = torch.cat((self.prenet(decoder_input), f0), dim=1)
             decoder_input = self.prenet(decoder_input)
             mel_output, gate_output, alignment = self.decode(decoder_input, attention)
 
@@ -575,6 +579,7 @@ class Tacotron2(nn.Module):
             self.gst = GST(hparams)
 #        self.speaker_embedding = nn.Embedding(
 #            hparams.n_speakers, hparams.speaker_embedding_dim)
+        self.speaker_embedding_dim = hparams.speaker_embedding_dim
 
     def parse_batch(self, batch):
         text_padded, input_lengths, mel_padded, gate_padded, \
@@ -615,9 +620,11 @@ class Tacotron2(nn.Module):
         embedded_gst = self.gst(targets)
         embedded_gst = embedded_gst.repeat(1, embedded_text.size(1), 1)
         #embedded_speakers = embedded_speakers.repeat(1, embedded_text.size(1), 1)
+#        embedded_speakers = embedded_gst.new_zeros(embedded_gst.size(0),
+#                embedded_text.size(1), self.speaker_embedding_dim)
 
         encoder_outputs = torch.cat(
-            (embedded_text, embedded_gst), dim=2) # , embedded_speakers), dim=2)
+            (embedded_text, embedded_gst), dim=2) #, embedded_speakers), dim=2)
 
         mel_outputs, gate_outputs, alignments = self.decoder(
             encoder_outputs, targets, memory_lengths=input_lengths, f0s=f0s)
@@ -644,6 +651,9 @@ class Tacotron2(nn.Module):
                 embedded_gst = self.gst(style_input)
 
         #embedded_speakers = embedded_speakers.repeat(1, embedded_text.size(1), 1)
+#        embedded_speakers = embedded_gst.new_zeros(embedded_gst.size(0),
+#                embedded_text.size(1), self.speaker_embedding_dim)
+
         if hasattr(self, 'gst'):
             embedded_gst = embedded_gst.repeat(1, embedded_text.size(1), 1)
             encoder_outputs = torch.cat(
@@ -677,6 +687,8 @@ class Tacotron2(nn.Module):
                 embedded_gst = self.gst(style_input)
 
         #embedded_speakers = embedded_speakers.repeat(1, embedded_text.size(1), 1)
+#        embedded_speakers = embedded_gst.new_zeros(embedded_gst.size(0),
+#                embedded_text.size(1), self.speaker_embedding_dim)
         if hasattr(self, 'gst'):
             embedded_gst = embedded_gst.repeat(1, embedded_text.size(1), 1)
             encoder_outputs = torch.cat(
