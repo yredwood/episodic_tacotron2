@@ -622,7 +622,8 @@ class Tacotron2(nn.Module):
         #embedded_speakers = embedded_speakers.repeat(1, embedded_text.size(1), 1)
 #        embedded_speakers = embedded_gst.new_zeros(embedded_gst.size(0),
 #                embedded_text.size(1), self.speaker_embedding_dim)
-
+        
+        embedded_text = embedded_text.new_zeros(embedded_text.size())
         encoder_outputs = torch.cat(
             (embedded_text, embedded_gst), dim=2) #, embedded_speakers), dim=2)
 
@@ -640,6 +641,7 @@ class Tacotron2(nn.Module):
         text, style_input, speaker_ids, f0s = inputs
         embedded_inputs = self.embedding(text).transpose(1, 2)
         embedded_text = self.encoder.inference(embedded_inputs)
+        embedded_text = embedded_text.new_zeros(embedded_text.size())
         #embedded_speakers = self.speaker_embedding(speaker_ids)[:, None]
         if hasattr(self, 'gst'):
             if isinstance(style_input, int):

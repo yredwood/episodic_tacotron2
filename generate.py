@@ -24,7 +24,7 @@ import pdb
 
 
 # ========== parameters ===========
-checkpoint_path = 'models/mellotron_warmup/checkpoint_8500'
+checkpoint_path = 'models/mellotron_notext_scratch_small/checkpoint_4500'
 waveglow_path = 'models/waveglow_256channels_v4.pt'
 #waveglow_path = '/home/mike/models/waveglow/waveglow_80000'
 audio_path = 'filelists/libri100_val.txt'
@@ -113,7 +113,6 @@ for idx in range(len(dataloader)):
     text_encoded = torch.LongTensor(\
             text_to_sequence(text, hparams.text_cleaners, arpabet_dict))[None, :].cuda()
     mel = load_mel(audio_path)
-
 
     # save reconstruction from true mel
     fname_wav = os.path.join(output_dir, 'ref_recon_{}.wav'.format(idx))
