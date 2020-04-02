@@ -7,7 +7,6 @@ import numpy as np
 import scipy as sp
 from scipy.io.wavfile import write
 from scipy.io.wavfile import read
-import pandas as pd
 import torch
 import matplotlib
 import matplotlib.pyplot as plt
@@ -24,7 +23,7 @@ import pdb
 
 
 # ========== parameters ===========
-checkpoint_path = 'models/mellotron_notext_scratch_small/checkpoint_4500'
+checkpoint_path = 'models/mellotron_new_autoencoder_nostl_tf0.5/checkpoint_7000'
 waveglow_path = 'models/waveglow_256channels_v4.pt'
 #waveglow_path = '/home/mike/models/waveglow/waveglow_80000'
 audio_path = 'filelists/libri100_val.txt'
@@ -100,57 +99,92 @@ arpabet_dict = cmudict.CMUDict('data/cmu_dictionary')
 dataloader, datacollate = load_dataloader(hparams, audio_path)
 
 
-# save reference wavs and aligned predictions
 for idx in range(len(dataloader)):
     audio_path, text, sid = dataloader.audiopaths_and_text[idx]
     if sid != supportset_sid:
         continue
 
-    # save original wav file
     fname_wav = os.path.join(output_dir, 'ref_true_{}.wav'.format(idx))
     copyfile(audio_path, fname_wav)
-
-    text_encoded = torch.LongTensor(\
-            text_to_sequence(text, hparams.text_cleaners, arpabet_dict))[None, :].cuda()
+    
+    # save waveglow original mel
     mel = load_mel(audio_path)
 
-    # save reconstruction from true mel
+    pdb.set_trace()
     fname_wav = os.path.join(output_dir, 'ref_recon_{}.wav'.format(idx))
-    with torch.no_grad(): 
+    with torch.no_grad():
         audio = denoiser(waveglow.infer(mel, sigma=0.8), 0.01)[:,0]
     write(fname_wav, hparams.sampling_rate, audio[0].data.cpu().numpy())
-    fname_fig = os.path.join(output_dir, 'ref_mel.png'.format(idx))
-    save_figure(mel[0].data.cpu().numpy(), 
-            np.zeros((10,10)), fname_fig)
-        
-    # save parallel prediction
-    fname_wav = os.path.join(output_dir, 'ref_parallel_{}.wav'.format(idx))
+    fname_fig = os.path.join(output_dir, 'true_mel_{}.png'.format(idx))
+    save_figure(mel[0].data.cpu().numpy(), np.zeros((10,10)), fname_fig, text)
+
+
+    # save waveglow prediction mel
+    fname_wav = os.path.join(output_dir, 'pred_{}.wav'.format(idx))
     with torch.no_grad():
-        mel_outputs, mel_outputs_postnet, gate_outputs, alignments = model.inference(
-                (text_encoded, mel, None, None))
-        audio = denoiser(waveglow.infer(mel_outputs_postnet, sigma=0.8), 0.01)[:,0]
+        _, mel_post, _ = model.inference(mel)
+        audio = denoiser(waveglow.infer(mel_post, sigma=0.8), 0.01)[:,0]
     write(fname_wav, hparams.sampling_rate, audio[0].data.cpu().numpy())
-
-    fname_fig = os.path.join(output_dir, 'attention_{}.png'.format(idx))
-    save_figure(mel_outputs_postnet[0].data.cpu().numpy(), 
-            alignments[0].data.cpu().numpy(), fname_fig)
-
-
+    
+    fname_fig = os.path.join(output_dir, 'pred_mel_{}.png'.format(idx))
+    save_figure(mel_post[0].data.cpu().numpy(), np.zeros((10,10)), fname_fig, text)
+    
     print (idx, text)
-    break
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
+## save reference wavs and aligned predictions
+#for idx in range(len(dataloader)):
+#    audio_path, text, sid = dataloader.audiopaths_and_text[idx]
+#    if sid != supportset_sid:
+#        continue
 #
+#    # save original wav file
+#    fname_wav = os.path.join(output_dir, 'ref_true_{}.wav'.format(idx))
+#    copyfile(audio_path, fname_wav)
+#
+#    text_encoded = torch.LongTensor(\
+#            text_to_sequence(text, hparams.text_cleaners, arpabet_dict))[None, :].cuda()
+#    mel = load_mel(audio_path)
+#
+#    # save reconstruction from true mel
+#    fname_wav = os.path.join(output_dir, 'ref_recon_{}.wav'.format(idx))
+#    with torch.no_grad(): 
+#        audio = denoiser(waveglow.infer(mel, sigma=0.8), 0.01)[:,0]
+#    write(fname_wav, hparams.sampling_rate, audio[0].data.cpu().numpy())
+#    fname_fig = os.path.join(output_dir, 'ref_mel.png'.format(idx))
+#    save_figure(mel[0].data.cpu().numpy(), 
+#            np.zeros((10,10)), fname_fig)
+#        
+#    # save parallel prediction
+#    fname_wav = os.path.join(output_dir, 'ref_parallel_{}.wav'.format(idx))
+#    with torch.no_grad():
+#        mel_outputs, mel_outputs_postnet, gate_outputs, alignments = model.inference(
+#                (text_encoded, mel, None, None))
+#        audio = denoiser(waveglow.infer(mel_outputs_postnet, sigma=0.8), 0.01)[:,0]
+#    write(fname_wav, hparams.sampling_rate, audio[0].data.cpu().numpy())
+#
+#    fname_fig = os.path.join(output_dir, 'attention_{}.png'.format(idx))
+#    save_figure(mel_outputs_postnet[0].data.cpu().numpy(), 
+#            alignments[0].data.cpu().numpy(), fname_fig)
+#
+#
+#    print (idx, text)
+#    break
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+##

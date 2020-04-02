@@ -211,36 +211,39 @@ class Encoder(nn.Module):
 
         return outputs
 
+
 class Decoder(nn.Module):
     def __init__(self, hparams):
         super(Decoder, self).__init__()
         self.n_mel_channels = hparams.n_mel_channels
         self.n_frames_per_step = hparams.n_frames_per_step
-        self.encoder_embedding_dim = hparams.token_embedding_size
-        self.attention_rnn_dim = hparams.attention_rnn_dim
+        self.encoder_embedding_dim = hparams.token_embedding_size 
         self.decoder_rnn_dim = hparams.decoder_rnn_dim
         self.prenet_dim = hparams.prenet_dim
         self.max_decoder_steps = hparams.max_decoder_steps
         self.gate_threshold = hparams.gate_threshold
-        self.p_attention_dropout = hparams.p_attention_dropout
         self.p_decoder_dropout = hparams.p_decoder_dropout
         self.p_teacher_forcing = hparams.p_teacher_forcing
 
-        self.prenet = Prenet(
-            hparams.n_mel_channels * hparams.n_frames_per_step,
-            [hparams.prenet_dim, hparams.prenet_dim])
+
+
+        # reference mel layers
+
+        self.prenet = Prenet(hparams.n_mel_channels * hparams.n_frames_per_step,
+                [hparams.prenet_dim, hparams.prenet_dim])
+
 
         self.attention_rnn = nn.LSTMCell(
-            hparams.prenet_dim + self.encoder_embedding_dim,
-            hparams.attention_rnn_dim)
+                hparams.prenet_dim + self.encoder_embedding_dim,
+                hparams.attention_rnn_dim)
 
         self.attention_layer = Attention(
-            hparams.attention_rnn_dim, self.encoder_embedding_dim,
-            hparams.attention_dim, hparams.attention_location_n_filters,
-            hparams.attention_location_kernel_size)
-
+                hparams.attention_rnn_dim, self.encoder_embedding_dim,
+                hparams.attention_dim, hparams.attention_location_n_filters,
+                hparams.attention_location_kernel_size)
+        
         self.decoder_rnn = nn.LSTMCell(
-            hparams.attention_rnn_dim + self.encoder_embedding_dim,
+            self.attention_rnn_dim + self.encoder_embedding_dim,
             hparams.decoder_rnn_dim, 1)
 
         self.linear_projection = LinearNorm(
@@ -256,6 +259,7 @@ class Decoder(nn.Module):
         PARAMS
         ------
         memory: decoder outputs
+
         RETURNS
         -------
         decoder_input: all zeros frames
@@ -298,184 +302,56 @@ class Decoder(nn.Module):
         self.processed_memory = self.attention_layer.memory_layer(memory)
         self.mask = mask
 
-    def parse_decoder_inputs(self, decoder_inputs):
-        """ Prepares decoder inputs, i.e. mel outputs
-        PARAMS
-        ------
-        decoder_inputs: inputs used for teacher-forced training, i.e. mel-specs
-        RETURNS
-        -------
-        inputs: processed decoder inputs
-        """
-        # (B, n_mel_channels, T_out) -> (B, T_out, n_mel_channels)
-        decoder_inputs = decoder_inputs.transpose(1, 2)
-        decoder_inputs = decoder_inputs.view(
-            decoder_inputs.size(0),
-            int(decoder_inputs.size(1)/self.n_frames_per_step), -1)
-        # (B, T_out, n_mel_channels) -> (T_out, B, n_mel_channels)
-        decoder_inputs = decoder_inputs.transpose(0, 1)
-        return decoder_inputs
 
-    def parse_decoder_outputs(self, mel_outputs, gate_outputs, alignments):
-        """ Prepares decoder outputs for output
-        PARAMS
-        ------
-        mel_outputs:
-        gate_outputs: gate output energies
-        alignments:
-        RETURNS
-        -------
-        mel_outputs:
-        gate_outpust: gate output energies
-        alignments:
-        """
-        # (T_out, B) -> (B, T_out)
-        alignments = torch.stack(alignments).transpose(0, 1)
-        # (T_out, B) -> (B, T_out)
-        gate_outputs = torch.stack(gate_outputs)
-        if len(gate_outputs.size()) > 1:
-            gate_outputs = gate_outputs.transpose(0, 1)
-        else:
-            gate_outputs = gate_outputs[None]
-        gate_outputs = gate_outputs.contiguous()
-        # (T_out, B, n_mel_channels) -> (B, T_out, n_mel_channels)
-        mel_outputs = torch.stack(mel_outputs).transpose(0, 1).contiguous()
-        # decouple frames per step
-        mel_outputs = mel_outputs.view(
-            mel_outputs.size(0), -1, self.n_mel_channels)
-        # (B, T_out, n_mel_channels) -> (B, n_mel_channels, T_out)
-        mel_outputs = mel_outputs.transpose(1, 2)
-
-        return mel_outputs, gate_outputs, alignments
-
-    def decode(self, decoder_input, attention_weights=None):
-        """ Decoder step using stored states, attention and memory
-        PARAMS
-        ------
-        decoder_input: previous mel output
-        RETURNS
-        -------
-        mel_output:
-        gate_output: gate output energies
-        attention_weights:
-        """
-        cell_input = torch.cat((decoder_input, self.attention_context), -1)
-        self.attention_hidden, self.attention_cell = self.attention_rnn(
-            cell_input, (self.attention_hidden, self.attention_cell))
-        self.attention_hidden = F.dropout(
-            self.attention_hidden, self.p_attention_dropout, self.training)
-        self.attention_cell = F.dropout(
-            self.attention_cell, self.p_attention_dropout, self.training)
-
-        attention_weights_cat = torch.cat(
-            (self.attention_weights.unsqueeze(1),
-             self.attention_weights_cum.unsqueeze(1)), dim=1)
-        self.attention_context, self.attention_weights = self.attention_layer(
-            self.attention_hidden, self.memory, self.processed_memory,
-            attention_weights_cat, self.mask, attention_weights)
-
-        self.attention_weights_cum += self.attention_weights
-        decoder_input = torch.cat(
-            (self.attention_hidden, self.attention_context), -1)
-        self.decoder_hidden, self.decoder_cell = self.decoder_rnn(
-            decoder_input, (self.decoder_hidden, self.decoder_cell))
-        self.decoder_hidden = F.dropout(
-            self.decoder_hidden, self.p_decoder_dropout, self.training)
-        self.decoder_cell = F.dropout(
-            self.decoder_cell, self.p_decoder_dropout, self.training)
-
-        decoder_hidden_attention_context = torch.cat(
-            (self.decoder_hidden, self.attention_context), dim=1)
-
-        decoder_output = self.linear_projection(
-            decoder_hidden_attention_context)
-
-        gate_prediction = self.gate_layer(decoder_hidden_attention_context)
-        return decoder_output, gate_prediction, self.attention_weights
-
-    def forward(self, memory, decoder_inputs, memory_lengths):
-        """ Decoder forward pass for training
-        PARAMS
-        ------
-        memory: Encoder outputs
-        decoder_inputs: Decoder inputs for teacher forcing. i.e. mel-specs
-        memory_lengths: Encoder output lengths for attention masking.
-        RETURNS
-        -------
-        mel_outputs: mel outputs from the decoder
-        gate_outputs: gate outputs from the decoder
-        alignments: sequence of attention weights from the decoder
-        """
-
-        decoder_input = self.get_go_frame(memory).unsqueeze(0)
-        decoder_inputs = self.parse_decoder_inputs(decoder_inputs)
-        decoder_inputs = torch.cat((decoder_input, decoder_inputs), dim=0)
-        decoder_inputs = self.prenet(decoder_inputs)
-
-        self.initialize_decoder_states(
-            memory, mask=~get_mask_from_lengths(memory_lengths))
+    def forward(self, context, target=None):
+        frame0 = self.get_go_frame(context)
+        h = Variable(context.data.new(context.size(0), self.decoder_rnn_dim).zero_())
+        c = Variable(context.data.new(context.size(0), self.decoder_rnn_dim).zero_())
 
         mel_outputs, gate_outputs, alignments = [], [], []
-        while len(mel_outputs) < decoder_inputs.size(0) - 1:
-            if len(mel_outputs) == 0 or np.random.uniform(0.0, 1.0) <= self.p_teacher_forcing:
-                decoder_input = decoder_inputs[len(mel_outputs)]
+        if target is not None:
+            # training mode
+            target = target.transpose(1, 2) # B,80,t -> B,t,80
+            target = target.view(target.size(0),
+                    int(target.size(1) / self.n_frames_per_step), -1)
+            target = target.transpose(0,1) # t,b,80
+            self.max_decoder_steps = target.size(0)
+
+        for t in range(self.max_decoder_steps):
+            if len(mel_outputs) == 0:
+                decoder_input = frame0
+            elif np.random.uniform(0.0, 1.0) <= self.p_teacher_forcing and target is not None:
+                decoder_input = target[len(mel_outputs)]
             else:
-                decoder_input = self.prenet(mel_outputs[-1])
+                decoder_input = mel_outputs[-1]
+            
+            decoder_input = torch.cat((self.prenet(decoder_input), context), -1)
+            h, c = self.decoder_rnn(decoder_input, (h, c))
+            c = F.dropout(c, self.p_decoder_dropout, self.training)
 
-            mel_output, gate_output, attention_weights = self.decode(
-                decoder_input)
-            mel_outputs += [mel_output.squeeze(1)]
-            gate_outputs += [gate_output.squeeze()]
-            alignments += [attention_weights]
+            output_context = torch.cat((h, context), dim=1)
 
-        mel_outputs, gate_outputs, alignments = self.parse_decoder_outputs(
-            mel_outputs, gate_outputs, alignments)
+            frame_prediction = self.linear_projection(output_context)
+            gate_prediction = self.gate_layer(output_context)
+            
+            mel_outputs.append(frame_prediction)
+            gate_outputs.append(gate_prediction)
 
-        return mel_outputs, gate_outputs, alignments
-
-    def inference(self, memory):
-        """ Decoder inference
-        PARAMS
-        ------
-        memory: Encoder outputs
-        RETURNS
-        -------
-        mel_outputs: mel outputs from the decoder
-        gate_outputs: gate outputs from the decoder
-        alignments: sequence of attention weights from the decoder
-        """
-        decoder_input = self.get_go_frame(memory)
-
-        self.initialize_decoder_states(memory, mask=None)
-
-        mel_outputs, gate_outputs, alignments = [], [], []
-        while True:
-            decoder_input = self.prenet(decoder_input)
-            mel_output, gate_output, alignment = self.decode(decoder_input)
-
-            mel_outputs += [mel_output.squeeze(1)]
-            gate_outputs += [gate_output]
-            alignments += [alignment]
-
-            if torch.sigmoid(gate_output.data) > self.gate_threshold:
+            if (target is None) and (torch.sigmoid(gate_prediction) > self.gate_threshold).all():
+                # inference break condition
                 break
-            elif len(mel_outputs) == self.max_decoder_steps:
-                print("Warning! Reached max decoder steps")
-                break
-
-            decoder_input = mel_output
-
-        mel_outputs, gate_outputs, alignments = self.parse_decoder_outputs(
-            mel_outputs, gate_outputs, alignments)
-
-        return mel_outputs, gate_outputs, alignments
-
+        
+        # parse output
+        gate_outputs = torch.stack(gate_outputs).transpose(0,1).contiguous()
+        mel_outputs = torch.stack(mel_outputs).transpose(0,1)
+        mel_outputs = mel_outputs.view(mel_outputs.size(0), -1, self.n_mel_channels).contiguous() # bsz,T,d
+        #mel_outputs = mel_outputs.view(mel_outputs.size(0), -1, self.n_mel_channels).transpose(1,2)
+        return mel_outputs, gate_outputs
 
 
 class TacotronAutoencoder(nn.Module):
     def __init__(self, hparams):
         super().__init__()
-        self.mask_padding = hparams.mask_padding
         self.fp16_run = hparams.fp16_run
         self.n_mel_channels =hparams.n_mel_channels
         self.n_frames_per_step = hparams.n_frames_per_step
@@ -497,18 +373,6 @@ class TacotronAutoencoder(nn.Module):
 
         return (mel_padded, output_lengths), (mel_padded, gate_padded)
 
-    def parse_output(self, outputs, output_lengths=None):
-        if self.mask_padding and output_lengths is not None:
-            mask = ~get_mask_from_lengths(output_lengths)
-            mask = mask.expand(self.n_mel_channels, mask.size(0), mask.size(1))
-            mask = mask.permute(1, 0, 2)
-
-            outputs[0].data.masked_fill_(mask, 0.0)
-            outputs[1].data.masked_fill_(mask, 0.0)
-            outputs[2].data.masked_fill_(mask[:, 0, :], 1e3)  # gate energies
-
-        return outputs
-
 
     def masked_output(self, x, length, value=0.0):
         mask = ~get_mask_from_lengths(length)
@@ -518,20 +382,19 @@ class TacotronAutoencoder(nn.Module):
 
     def forward(self, inputs):
         mel_padded, mel_length = inputs
-        ref_encoded, ref_lengths = self.gst(mel_padded)
-
-        ref_lengths = ref_encoded.new_tensor([ref_encoded.size(1)]*ref_encoded.size(0)).long()
-
-        mel_outputs, gate_outputs, alignments = self.decoder(
-                ref_encoded, mel_padded, memory_lengths=ref_lengths)
-
-        mel_outputs_postnet = self.postnet(mel_outputs)
-        mel_outputs_postnet = mel_outputs + mel_outputs_postnet
+        target_encoded, target_lengths = self.gst(mel_padded).squeeze(1)
         
-        out = self.parse_output(
-                [mel_outputs, mel_outputs_postnet, gate_outputs, alignments], mel_length)
-    
-        return out
+        mel_out, gate_out = self.decoder(target_encoded, mel_padded)
+        postnet_out = self.postnet(mel_out.transpose(-1,-2))
+        postnet_out = mel_out + postnet_out.transpose(-1,-2)
+
+        # masked_output
+        mel_out = self.masked_output(mel_out, mel_length, 0.0)
+        postnet_out = self.masked_output(postnet_out, mel_length, 0.0)
+        #gate_out = self.masked_output(gates, mel_length, 1e3)
+        zero_alignments = mel_out.new_zeros(10,10,10)
+
+        return mel_out.transpose(-1,-2), postnet_out.transpose(-1,-2), gate_out, zero_alignments
 
     def inference(self, inputs):
         mel_padded = inputs

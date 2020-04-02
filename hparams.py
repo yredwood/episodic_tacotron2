@@ -16,7 +16,7 @@ def create_hparams(hparams_string=None, verbose=False):
         fp16_run=False,
         distributed_run=False,
         dist_backend="nccl",
-        dist_url="tcp://localhost:54326",
+        dist_url="tcp://localhost:54325",
         cudnn_enabled=True,
         cudnn_benchmark=False,
         ignore_layers=['speaker_embedding.weight'],
@@ -72,7 +72,7 @@ def create_hparams(hparams_string=None, verbose=False):
         gate_threshold=0.5,
         p_attention_dropout=0.1,
         p_decoder_dropout=0.1,
-        p_teacher_forcing=1.0,
+        p_teacher_forcing=0.0,
 
         # Attention parameters
         attention_rnn_dim=1024,
@@ -93,11 +93,11 @@ def create_hparams(hparams_string=None, verbose=False):
 
         # Reference encoder
         with_gst=True,
-        ref_enc_filters=[32, 32, 64, 64, 128, 128],
+        ref_enc_filters=[32, 32, 32],
         ref_enc_size=[3, 3],
         ref_enc_strides=[2, 2],
         ref_enc_pad=[1, 1],
-        ref_enc_gru_size=128,
+#        ref_enc_gru_size=256,
 #        ref_enc_filters=[32, 64, 128, 256, 512, 1024],
 #        ref_enc_size=[3, 3],
 #        ref_enc_strides=[2, 2],
