@@ -13,8 +13,7 @@ import pdb
 drop_rate = 0.5
 
 def load_model(hparams):
-    #model = Tacotron2(hparams).cuda()
-    model = TacotronAutoencoder(hparams).cuda()
+    model = GSTTacotron2(hparams).cuda()
     if hparams.fp16_run:
         model.decoder.attention_layer.score_mask_value = finfo('float16').min
     return model
@@ -165,6 +164,13 @@ class Encoder(nn.Module):
     def __init__(self, hparams):
         super(Encoder, self).__init__()
 
+
+        self.embedding = nn.Embedding(
+                hparams.n_symbols, hparams.symbols_embedding_dim)
+        std = sqrt(2.0 / (hparams.n_symbols + hparams.symbols_embedding_dim))
+        val = sqrt(3.0) * std  # uniform bounds for std
+        self.embedding.weight.data.uniform_(-val, val)
+
         convolutions = []
         for _ in range(hparams.encoder_n_convolutions):
             conv_layer = nn.Sequential(
@@ -182,6 +188,8 @@ class Encoder(nn.Module):
                             batch_first=True, bidirectional=True)
 
     def forward(self, x, input_lengths):
+        x = self.embedding(x).transpose(1,2)
+
         for conv in self.convolutions:
             x = F.dropout(F.relu(conv(x)), drop_rate, self.training)
 
@@ -216,7 +224,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.n_mel_channels = hparams.n_mel_channels
         self.n_frames_per_step = hparams.n_frames_per_step
-        self.encoder_embedding_dim = hparams.token_embedding_size
+        self.encoder_embedding_dim = hparams.token_embedding_size + hparams.encoder_embedding_dim
         self.attention_rnn_dim = hparams.attention_rnn_dim
         self.decoder_rnn_dim = hparams.decoder_rnn_dim
         self.prenet_dim = hparams.prenet_dim
@@ -472,7 +480,7 @@ class Decoder(nn.Module):
 
 
 
-class TacotronAutoencoder(nn.Module):
+class GSTTacotron2(nn.Module):
     def __init__(self, hparams):
         super().__init__()
         self.mask_padding = hparams.mask_padding
@@ -480,6 +488,7 @@ class TacotronAutoencoder(nn.Module):
         self.n_mel_channels =hparams.n_mel_channels
         self.n_frames_per_step = hparams.n_frames_per_step
 
+        self.encoder = Encoder(hparams)
         self.gst = GST(hparams)
         self.decoder = Decoder(hparams)
         self.postnet = Postnet(hparams)
@@ -495,7 +504,7 @@ class TacotronAutoencoder(nn.Module):
         output_lengths = to_gpu(output_lengths).long()
         speaker_ids = to_gpu(speaker_ids.data).long()
 
-        return (mel_padded, output_lengths), (mel_padded, gate_padded)
+        return (text_padded, input_lengths, mel_padded, output_lengths), (mel_padded, gate_padded)
 
     def parse_output(self, outputs, output_lengths=None):
         if self.mask_padding and output_lengths is not None:
@@ -517,20 +526,23 @@ class TacotronAutoencoder(nn.Module):
         return x
 
     def forward(self, inputs):
-        mel_padded, mel_length = inputs
-        ref_encoded, ref_lengths = self.gst(mel_padded)
+        text_padded, text_length, mel_padded, mel_length = inputs
 
-        ref_lengths = ref_encoded.new_tensor([ref_encoded.size(1)]*ref_encoded.size(0)).long()
+        text_embedding = self.encoder(text_padded, text_length)
+        style_token = self.gst(mel_padded)
+
+        decoder_input = torch.cat((text_embedding,
+            style_token.repeat(1, text_embedding.size(1), 1)), dim=-1)
 
         mel_outputs, gate_outputs, alignments = self.decoder(
-                ref_encoded, mel_padded, memory_lengths=ref_lengths)
+                decoder_input, mel_padded, memory_lengths=text_length)
 
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         
         out = self.parse_output(
                 [mel_outputs, mel_outputs_postnet, gate_outputs, alignments], mel_length)
-    
+
         return out
 
     def inference(self, inputs):

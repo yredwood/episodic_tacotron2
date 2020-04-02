@@ -16,7 +16,7 @@ def create_hparams(hparams_string=None, verbose=False):
         fp16_run=False,
         distributed_run=False,
         dist_backend="nccl",
-        dist_url="tcp://localhost:54325",
+        dist_url="tcp://localhost:54326",
         cudnn_enabled=True,
         cudnn_benchmark=False,
         ignore_layers=['speaker_embedding.weight'],
@@ -93,21 +93,21 @@ def create_hparams(hparams_string=None, verbose=False):
 
         # Reference encoder
         with_gst=True,
-        ref_enc_filters=[32, 32, 32],
-        ref_enc_size=[3, 3],
-        ref_enc_strides=[2, 2],
-        ref_enc_pad=[1, 1],
+#        ref_enc_filters=[32, 32, 32],
+#        ref_enc_size=[3, 3],
+#        ref_enc_strides=[2, 2],
+#        ref_enc_pad=[1, 1],
 #        ref_enc_gru_size=256,
 #        ref_enc_filters=[32, 64, 128, 256, 512, 1024],
 #        ref_enc_size=[3, 3],
 #        ref_enc_strides=[2, 2],
 #        ref_enc_pad=[1, 1],
 #        ref_enc_gru_size=1024,
+#        token_num=10,
+#        num_heads=8,
 
         # Style Token Layer
         token_embedding_size=256,
-        token_num=10,
-        num_heads=8,
 
         ################################
         # Optimization Hyperparameters #
@@ -115,7 +115,7 @@ def create_hparams(hparams_string=None, verbose=False):
         use_saved_learning_rate=False,
         learning_rate=1e-3,
         learning_rate_min=1e-5,
-        learning_rate_anneal=50000,
+        learning_rate_anneal=50000, # in steps
         weight_decay=1e-6,
         grad_clip_thresh=1.0,
         batch_size=64,

@@ -292,7 +292,7 @@ class GST_las(nn.Module):
         # using final_h
         final_outs = final_hiddens.view(-1,2,final_hiddens.size(-2),final_hiddens.size(-1))
         final_outs = torch.cat((final_outs[-1,0], final_outs[-1,1]), dim=-1)
-        return final_outs.unsqueeze(1).repeat(1,10,1), pooled_length
+        return final_outs.unsqueeze(1)
         
 
     def pooling(self, x):
