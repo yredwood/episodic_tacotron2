@@ -72,7 +72,7 @@ def create_hparams(hparams_string=None, verbose=False):
         gate_threshold=0.5,
         p_attention_dropout=0.1,
         p_decoder_dropout=0.1,
-        p_teacher_forcing=0.0,
+        p_teacher_forcing=1.0,
 
         # Attention parameters
         attention_rnn_dim=1024,
@@ -118,7 +118,7 @@ def create_hparams(hparams_string=None, verbose=False):
         learning_rate_anneal=50000, # in steps
         weight_decay=1e-6,
         grad_clip_thresh=1.0,
-        batch_size=64,
+        batch_size=32,
         mask_padding=True,  # set model's padded outputs to padded values
 
     )

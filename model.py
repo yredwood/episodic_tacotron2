@@ -546,10 +546,29 @@ class GSTTacotron2(nn.Module):
         return out
 
     def inference(self, inputs):
-        mel_padded = inputs
-        target_encoded = self.gst(mel_padded).squeeze(1)
+        # inference for sinlge input (batch_size=1)
+        # text = inputs
+        text, refmel = inputs
         
-        mel_out, gate_out = self.decoder(target_encoded)
-        postnet_out = self.postnet(mel_out.transpose(-1,-2))
-        postnet_out = mel_out + postnet_out.transpose(-1,-2)
-        return mel_out.transpose(-1,-2), postnet_out.transpose(-1,-2), gate_out
+        text_length = text.new_tensor([text.size(1)]).long()
+        text_embedding = self.encoder(text, text_length)
+        style_token = self.gst(refmel)
+
+        decoder_input = torch.cat((text_embedding,
+            style_token.repeat(1, text_embedding.size(1), 1)), dim=-1)
+
+        mel_outputs, gate_outputs, alignments = self.decoder(
+                decoder_input, refmel, memory_lengths=text_length)
+
+        mel_outputs_postnet = self.postnet(mel_outputs)
+        mel_outputs_postnet = mel_outputs + mel_outputs_postnet
+        
+        return mel_outputs_postnet, alignments
+
+
+
+
+
+
+
+    #
