@@ -49,7 +49,7 @@ def run(output_dir, ckpt_path):
 if __name__ == '__main__':
 
     output_dir = 'data-bin/mel_train-clean-100'
-    ckpt_path = 'models/gst_tacotron_baseline_pretrained/checkpoint_2000'
+    ckpt_path = 'models/gst_tacotron_baseline_pretrained/checkpoint_45000'
     
     hparams = create_hparams()
     hparams.batch_size = 1

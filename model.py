@@ -224,7 +224,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.n_mel_channels = hparams.n_mel_channels
         self.n_frames_per_step = hparams.n_frames_per_step
-        self.encoder_embedding_dim = hparams.token_embedding_size + hparams.encoder_embedding_dim
+        self.encoder_embedding_dim = hparams.encoder_embedding_dim
         self.attention_rnn_dim = hparams.attention_rnn_dim
         self.decoder_rnn_dim = hparams.decoder_rnn_dim
         self.prenet_dim = hparams.prenet_dim
@@ -492,6 +492,8 @@ class GSTTacotron2(nn.Module):
         self.gst = GST(hparams)
         self.decoder = Decoder(hparams)
         self.postnet = Postnet(hparams)
+        
+        self.p_style_teacher_forcing = hparams.p_style_teacher_forcing
 
     def parse_batch(self, batch):
         text_padded, input_lengths, mel_padded, gate_padded, \
@@ -531,11 +533,14 @@ class GSTTacotron2(nn.Module):
         text_embedding = self.encoder(text_padded, text_length)
         style_token = self.gst(mel_padded)
 
-        decoder_input = torch.cat((text_embedding,
-            style_token.repeat(1, text_embedding.size(1), 1)), dim=-1)
+        if np.random.uniform(0.0, 1.0) <= self.p_style_teacher_forcing:
+            text_embedding = text_embedding + style_token
+        else:
+            text_embedding = text_embedding + 0.0 * style_token
+#        text_embedding = text_embedding + style_token
 
         mel_outputs, gate_outputs, alignments = self.decoder(
-                decoder_input, mel_padded, memory_lengths=text_length)
+                text_embedding, mel_padded, memory_lengths=text_length)
 
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
