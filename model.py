@@ -7,7 +7,8 @@ from torch import nn
 from torch.nn import functional as F
 from layers import ConvNorm, LinearNorm
 from utils import to_gpu, get_mask_from_lengths
-from modules import GST_las as GST
+#from modules import GST_las as GST
+from modules import GST
 import pdb
 
 drop_rate = 0.5
@@ -557,13 +558,13 @@ class GSTTacotron2(nn.Module):
         
         text_length = text.new_tensor([text.size(1)]).long()
         text_embedding = self.encoder(text, text_length)
-        style_token = self.gst(refmel)
-
-        decoder_input = torch.cat((text_embedding,
-            style_token.repeat(1, text_embedding.size(1), 1)), dim=-1)
+        
+        if refmel is not None:
+            style_token = self.gst(refmel)
+        text_embedding = text_embedding + style_token
 
         mel_outputs, gate_outputs, alignments = self.decoder(
-                decoder_input, refmel, memory_lengths=text_length)
+                text_embedding, refmel, memory_lengths=text_length)
 
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet

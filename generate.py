@@ -23,7 +23,7 @@ import pdb
 
 
 # ========== parameters ===========
-checkpoint_path = 'models/gst_tacotron_baseline_pretrained/checkpoint_45000'
+checkpoint_path = 'models/gst_tacotron_baseline_style_tf0.5_tanh/checkpoint_2000'
 waveglow_path = 'models/pretrained/waveglow_256channels_v4.pt'
 #waveglow_path = '/home/mike/models/waveglow/waveglow_80000'
 audio_path = 'filelists/libri100_val.txt'
