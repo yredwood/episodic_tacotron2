@@ -121,9 +121,20 @@ def create_hparams(hparams_string=None, verbose=False):
         batch_size=64,
         mask_padding=True,  # set model's padded outputs to padded values
 
-        # gst
+
+
+        ###### EPISODIC + ADITIONAL #####
         p_style_teacher_forcing=0.5,
 
+        episodic_training = False,
+        model_name = 'gst-tacotron',
+        
+        #episodic_training = True, 
+        #model_name = 'episodic-tacotron-gstbaseline',
+
+        num_common = 1,
+        num_support = 1,
+        num_query = 8,
 
 
     )

@@ -4,6 +4,7 @@ import re
 import numpy as np
 import torch
 import torch.utils.data
+import torch.distributed as dist
 import librosa
 
 import layers
