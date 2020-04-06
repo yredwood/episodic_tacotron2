@@ -265,8 +265,9 @@ class GST_las(nn.Module):
                 bidirectional=True,
                 shortcut=True,
         )
-        self.output_dim = self.lstm_hidden_dim * 2
 
+        self.output_dim = self.lstm_hidden_dim * 2
+        self.out_linear = nn.Linear(self.output_dim, self.output_dim)
 
     def forward(self, x):
         
@@ -292,6 +293,8 @@ class GST_las(nn.Module):
         # using final_h
         final_outs = final_hiddens.view(-1,2,final_hiddens.size(-2),final_hiddens.size(-1))
         final_outs = torch.cat((final_outs[-1,0], final_outs[-1,1]), dim=-1)
+
+        final_outs = torch.tanh(self.out_linear(final_outs))
         return final_outs.unsqueeze(1)
         
 

@@ -536,7 +536,7 @@ class GSTTacotron2(nn.Module):
         if np.random.uniform(0.0, 1.0) <= self.p_style_teacher_forcing:
             text_embedding = text_embedding + style_token
         else:
-            text_embedding = text_embedding + 0.0 * style_token
+            text_embedding = text_embedding + 0.0 * style_token # zero grad for style
 #        text_embedding = text_embedding + style_token
 
         mel_outputs, gate_outputs, alignments = self.decoder(
