@@ -9,6 +9,7 @@ from distributed import apply_gradient_allreduce
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
+from data_utils import EpisodicLoader, EpisodicCollater, EpisodicBatchSampler, DistributedEpisodicSampler
 
 from model import load_model
 from data_utils import TextMelLoader, TextMelCollate
@@ -39,27 +40,67 @@ def init_distributed(hparams, n_gpus, rank, group_name):
     print("Done initializing distributed")
 
 
+#def prepare_dataloaders(hparams):
+#
+#    # Get data, data loaders and collate function ready
+#    trainset = TextMelLoader(hparams.training_files, hparams)
+#    valset = TextMelLoader(hparams.validation_files, hparams)
+#    #                       speaker_ids=trainset.speaker_ids) # NO speaker ids
+#    collate_fn = TextMelCollate(hparams.n_frames_per_step)
+#
+#    if hparams.distributed_run:
+#        train_sampler = DistributedSampler(trainset)
+#        shuffle = False
+#    else:
+#        train_sampler = None
+#        shuffle = True
+#
+#    train_loader = DataLoader(trainset, num_workers=1, shuffle=shuffle,
+#                              sampler=train_sampler,
+#                              batch_size=hparams.batch_size, pin_memory=False,
+#                              drop_last=True, collate_fn=collate_fn)
+#    return train_loader, valset, collate_fn, train_sampler
+
 def prepare_dataloaders(hparams):
+    if hparams.episodic_training:
+        trainset = EpisodicLoader(hparams.training_files, hparams)
+        valset = EpisodicLoader(hparams.validation_files, hparams)
+        collate_fn = EpisodicCollater(hparams.n_frames_per_step, hparams)
 
-    # Get data, data loaders and collate function ready
-    trainset = TextMelLoader(hparams.training_files, hparams)
-    valset = TextMelLoader(hparams.validation_files, hparams)
-    #                       speaker_ids=trainset.speaker_ids) # NO speaker ids
-    collate_fn = TextMelCollate(hparams.n_frames_per_step)
+        if hparams.distributed_run:
+            train_sampler = DistributedEpisodicSampler(trainset.sid_to_index, hparams, shuffle=True)
+            val_sampler = DistributedEpisodicSampler(valset.sid_to_index, hparams, shuffle=False)
+        else:
+            train_sampler = EpisodicBatchSampler(trainset.sid_to_index, hparams, shuffle=True)
+            val_sampler = EpisodicBatchSampler(valset.sid_to_index, hparams, shuffle=False)
 
-    if hparams.distributed_run:
-        train_sampler = DistributedSampler(trainset)
-        shuffle = False
-    else:
-        train_sampler = None
-        shuffle = True
+        train_loader = DataLoader(trainset, num_workers=1, batch_sampler=train_sampler, 
+                pin_memory=False, collate_fn=collate_fn)
+        val_loader = DataLoader(valset, num_workers=1, batch_sampler=val_sampler,
+                pin_memory=False, collate_fn=collate_fn)
 
-    train_loader = DataLoader(trainset, num_workers=1, shuffle=shuffle,
-                              sampler=train_sampler,
-                              batch_size=hparams.batch_size, pin_memory=False,
-                              drop_last=True, collate_fn=collate_fn)
-    return train_loader, valset, collate_fn, train_sampler
+    else: # not episodic training
+        trainset = TextMelLoader(hparams.training_files, hparams)
+        valset = TextMelLoader(hparams.validation_files, hparams)
+        collate_fn = TextMelCollate(hparams.n_frames_per_step)
 
+        if hparams.distributed_run:
+            train_sampler = DistributedSampler(trainset)
+            val_sampler = DistributedSampler(valset)
+            shuffle = False
+        else:
+            train_sampler = None
+            val_sampler = None
+            shuffle = True
+
+        train_loader = DataLoader(trainset, num_workers=1, shuffle=shuffle,
+                sampler=train_sampler, batch_size=hparams.batch_size, pin_memory=False,
+                drop_last=True, collate_fn=collate_fn)
+        val_loader = DataLoader(valset, num_workers=1, shuffle=False,
+                sampler=val_sampler, batch_size=hparams.batch_size, pin_memory=False, 
+                collate_fn=collate_fn)
+
+    return train_loader, train_sampler, val_loader, val_sampler
 
 def prepare_directories_and_logger(output_directory, log_directory, rank):
     if rank == 0:
@@ -135,16 +176,11 @@ def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
                 'learning_rate': learning_rate}, filepath)
 
 
-def validate(model, criterion, valset, iteration, batch_size, n_gpus,
-             collate_fn, logger, distributed_run, rank):
+def validate(model, criterion, val_loader, iteration, batch_size, n_gpus,
+             logger, distributed_run, rank):
     """Handles all the validation scoring and printing"""
     model.eval()
     with torch.no_grad():
-        val_sampler = DistributedSampler(valset) if distributed_run else None
-        val_loader = DataLoader(valset, sampler=val_sampler, num_workers=1,
-                                shuffle=False, batch_size=batch_size,
-                                pin_memory=False, collate_fn=collate_fn)
-
         val_loss = 0.0
         for i, batch in enumerate(val_loader):
             x, y = model.parse_batch(batch)
@@ -200,7 +236,7 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
     logger = prepare_directories_and_logger(
         output_directory, log_directory, rank)
 
-    train_loader, valset, collate_fn, train_sampler = prepare_dataloaders(hparams)
+    train_loader, train_sampler, val_loader, val_sampler = prepare_dataloaders(hparams)
 
     # Load checkpoint if one exists
     iteration = 0
@@ -266,8 +302,8 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
                     reduced_loss, grad_norm, learning_rate, duration, iteration)
 
             if not is_overflow and (iteration % hparams.iters_per_checkpoint == 0):
-                validate(model, criterion, valset, iteration,
-                        hparams.batch_size, n_gpus, collate_fn, logger,
+                validate(model, criterion, val_loader, iteration, 
+                        hparams.batch_size, n_gpus, logger, 
                         hparams.distributed_run, rank)
                 if rank == 0:
                     checkpoint_path = os.path.join(

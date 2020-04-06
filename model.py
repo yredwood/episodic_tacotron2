@@ -15,8 +15,15 @@ drop_rate = 0.5
 
 def load_model(hparams):
     model = GSTTacotron2(hparams).cuda()
-    if hparams.fp16_run:
-        model.decoder.attention_layer.score_mask_value = finfo('float16').min
+
+    if hparams.model_name == 'episodic-tacotron-gstbaseline':
+        model = EpisodicTacotron_GSTbaseline(hparams).cuda()
+    elif hparams.model_name == 'gst-tacotron':
+        model = GSTTacotron2(hparams).cuda()
+    else:
+        raise NameError('no model named {}'.format(hparams.model_name))
+    print ('model [{}] is loaded'.format(hparams.model_name))
+
     return model
 
 class Prenet(nn.Module):
@@ -561,7 +568,7 @@ class GSTTacotron2(nn.Module):
         
         if refmel is not None:
             style_token = self.gst(refmel)
-        text_embedding = text_embedding + style_token
+            text_embedding = text_embedding + style_token
 
         mel_outputs, gate_outputs, alignments = self.decoder(
                 text_embedding, refmel, memory_lengths=text_length)
@@ -572,9 +579,33 @@ class GSTTacotron2(nn.Module):
         return mel_outputs_postnet, alignments
 
 
+class EpisodicTacotron_GSTbaseline(GSTTacotron2):
+    def __init__(self, hparams):
+        super(GSTTacotron2, self).__init__()
+        self.mask_padding = hparams.mask_padding
 
+        self.fp16_run = hparams.fp16_run
+        self.n_mel_channels =hparams.n_mel_channels
+        self.n_frames_per_step = hparams.n_frames_per_step
 
+        self.encoder = Encoder(hparams)
+        self.gst = GST(hparams)
+        self.decoder = Decoder(hparams)
+        self.postnet = Postnet(hparams)
 
+        self.p_style_teacher_forcing = hparams.p_style_teacher_forcing
+
+    def parse_batch(self, batch):
+        '''
+        returns (x,y)
+        '''
+        text_padded     = to_gpu(batch['query']['text_padded']).long()
+        text_length     = to_gpu(batch['query']['input_lengths']).long()
+        mel_padded      = to_gpu(batch['query']['mel_padded']).float()
+        mel_length      = to_gpu(batch['query']['output_lengths']).long()
+        gate_padded     = to_gpu(batch['query']['gate_padded']).float()
+
+        return (text_padded, text_length, mel_padded, mel_length), (mel_padded, gate_padded)
 
 
     #
