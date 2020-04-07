@@ -16,7 +16,7 @@ def create_hparams(hparams_string=None, verbose=False):
         fp16_run=False,
         distributed_run=False,
         dist_backend="nccl",
-        dist_url="tcp://localhost:54324",
+        dist_url="tcp://localhost:54327",
         cudnn_enabled=True,
         cudnn_benchmark=False,
         ignore_layers=['speaker_embedding.weight'],
@@ -124,7 +124,7 @@ def create_hparams(hparams_string=None, verbose=False):
 
 
         ###### EPISODIC + ADITIONAL #####
-        p_style_teacher_forcing=0.5,
+        p_style_teacher_forcing=0.0,
 
         episodic_training = False,
         model_name = 'gst-tacotron',

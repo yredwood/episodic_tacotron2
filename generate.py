@@ -23,7 +23,7 @@ import pdb
 
 
 # ========== parameters ===========
-checkpoint_path = 'models/gst_tacotron_baseline_style_tf0.5_tanh/checkpoint_2000'
+checkpoint_path = 'models/gst_tacotron_original_stl_pps_tf0.5/checkpoint_1000'
 waveglow_path = 'models/pretrained/waveglow_256channels_v4.pt'
 #waveglow_path = '/home/mike/models/waveglow/waveglow_80000'
 audio_path = 'filelists/libri100_val.txt'
@@ -136,13 +136,27 @@ for idx in range(len(dataloader)):
     for text in test_text_list:
         text_encoded = torch.LongTensor(
             text_to_sequence(text, hparams.text_cleaners, arpabet_dict))[None,:].cuda().long()
-        fname_wav = os.path.join(output_dir, '{}_ref{}.wav'.format(text, idx))
+        fname_wav = os.path.join(output_dir, 'ref{}_{}.wav'.format(text, idx))
         with torch.no_grad():
             mel_post, _ = model.inference((text_encoded, mel))
             audio = denoiser(waveglow.infer(mel_post, sigma=0.8), 0.01)[:,0]
         write(fname_wav, hparams.sampling_rate, audio[0].data.cpu().numpy())
         
-        fname_fig = os.path.join(output_dir, '{}_ref{}.png'.format(text, idx))
+        fname_fig = os.path.join(output_dir, 'ref{}_{}.png'.format(text, idx))
+        save_figure(mel_post[0].data.cpu().numpy(), np.zeros((10,10)), fname_fig, text)
+        print (idx, text)
+
+    # without style 
+    for text in test_text_list:
+        text_encoded = torch.LongTensor(
+            text_to_sequence(text, hparams.text_cleaners, arpabet_dict))[None,:].cuda().long()
+        fname_wav = os.path.join(output_dir, 'noref_{}.wav'.format(text, idx))
+        with torch.no_grad():
+            mel_post, _ = model.inference((text_encoded, None))
+            audio = denoiser(waveglow.infer(mel_post, sigma=0.8), 0.01)[:,0]
+        write(fname_wav, hparams.sampling_rate, audio[0].data.cpu().numpy())
+        
+        fname_fig = os.path.join(output_dir, 'ref{}_{}.png'.format(text, idx))
         save_figure(mel_post[0].data.cpu().numpy(), np.zeros((10,10)), fname_fig, text)
         print (idx, text)
     

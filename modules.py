@@ -61,6 +61,7 @@ class ReferenceEncoder(nn.Module):
 
     def forward(self, inputs):
         out = inputs.transpose(-1,-2).reshape(inputs.size(0), 1, -1, self.n_mel_channels)
+        #out = inputs.reshape(inputs.size(0), 1, -1, self.n_mel_channels)
         for conv, bn in zip(self.convs, self.bns):
             out = conv(out)
             out = bn(out)

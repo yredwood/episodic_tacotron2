@@ -565,13 +565,15 @@ class GSTTacotron2(nn.Module):
         
         text_length = text.new_tensor([text.size(1)]).long()
         text_embedding = self.encoder(text, text_length)
-        
+
         if refmel is not None:
             style_token = self.gst(refmel)
             text_embedding = text_embedding + style_token
 
-        mel_outputs, gate_outputs, alignments = self.decoder(
-                text_embedding, refmel, memory_lengths=text_length)
+#        mel_outputs, gate_outputs, alignments = self.decoder(
+#                text_embedding, refmel, memory_lengths=text_length)
+        mel_outputs, gate_outputs, alignments = self.decoder.inference(
+                text_embedding)
 
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
