@@ -13,10 +13,10 @@ def create_hparams(hparams_string=None, verbose=False):
         iters_per_checkpoint=500,
         seed=1234,
         dynamic_loss_scaling=True,
-        fp16_run=False,
+        fp16_run=True,
         distributed_run=False,
         dist_backend="nccl",
-        dist_url="tcp://localhost:54327",
+        dist_url="tcp://localhost:54323",
         cudnn_enabled=True,
         cudnn_benchmark=False,
         ignore_layers=['speaker_embedding.weight'],
@@ -52,30 +52,30 @@ def create_hparams(hparams_string=None, verbose=False):
         # Model Parameters             #
         ################################
         n_symbols=len(symbols),
-        symbols_embedding_dim=512,
+        symbols_embedding_dim=128,
 
         # Encoder parameters
         encoder_kernel_size=5,
         encoder_n_convolutions=3,
-        encoder_embedding_dim=512,
+        encoder_embedding_dim=128,
 
         # Decoder parameters
         n_frames_per_step=1,  # currently only 1 is supported
-        decoder_rnn_dim=1024,
+        decoder_rnn_dim=512,
         prenet_dim=256,
         prenet_f0_n_layers=1,
         prenet_f0_dim=1,
         prenet_f0_kernel_size=1,
         prenet_rms_dim=0,
         prenet_rms_kernel_size=1,
-        max_decoder_steps=1000,
+        max_decoder_steps=800,
         gate_threshold=0.5,
         p_attention_dropout=0.1,
         p_decoder_dropout=0.1,
         p_teacher_forcing=1.0,
 
         # Attention parameters
-        attention_rnn_dim=1024,
+        attention_rnn_dim=512,
         attention_dim=128,
 
         # Location Layer parameters
@@ -107,7 +107,7 @@ def create_hparams(hparams_string=None, verbose=False):
         num_heads=8,
 
         # Style Token Layer
-        token_embedding_size=512,
+        token_embedding_size=128,
 
         ################################
         # Optimization Hyperparameters #
@@ -124,7 +124,7 @@ def create_hparams(hparams_string=None, verbose=False):
 
 
         ###### EPISODIC + ADITIONAL #####
-        p_style_teacher_forcing=0.0,
+        p_style_teacher_forcing=1.0,
 
         episodic_training = False,
         model_name = 'gst-tacotron',

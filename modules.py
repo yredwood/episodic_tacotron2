@@ -152,10 +152,12 @@ class GST(nn.Module):
         self.encoder = ReferenceEncoder(hp)
         self.stl = STL(hp)
 
+        self.postlinear = nn.Linear(hp.encoder_embedding_dim, hp.encoder_embedding_dim)
+
     def forward(self, inputs):
         enc_out = self.encoder(inputs)
         style_embed = self.stl(enc_out)
-        # should add tanh?
+        style_embed = torch.tanh(self.postlinear(style_embed))
         return style_embed
 
 
